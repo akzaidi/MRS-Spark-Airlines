@@ -1,0 +1,210 @@
+---
+title: "Spark SQL -- Mutations and Joins with an R DSL"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Loading Required Packages
+
+We will make frequent use of many packages in the [tidyverse](http://tidyverse.org/), which is a collection of handy packages for data manipulation and visualization. A good references on the core tidyverse packages in the book [R for Data Science](http://r4ds.had.co.nz/). We will also need the [`sparklyr`](spark.rstudio.com) package for create Spark sessions.
+
+```{r load-pkgs}
+library(sparklyr)
+library(tidyverse)
+
+```
+
+## Creating a Spark Context
+
+Let's create our Spark session. In the example below, I'm assuming our worker nodes are D13v2 nodes, which have 56 GBs of RAM each, and 8 cores. Typically, we'll want to have 3 executors on each node, so we'll set the memory at 16 GB, and cores at 2.
+
+
+```{r spark-config}
+
+# Configure cluster (D13v2large 56G 8core 400GBdisk) ----------------------
+
+
+conf <- spark_config()
+conf$'sparklyr.shell.executor-memory' <- "16g"
+conf$'sparklyr.shell.driver-memory' <- "16g"
+conf$spark.executor.cores <- 2
+conf$spark.executor.memory <- "16G"
+conf$spark.yarn.am.cores  <- 2
+conf$spark.yarn.am.memory <- "16G"
+conf$spark.dynamicAllocation.enabled <- "false"
+
+sc <- spark_connect(master = "yarn-client", config = conf)
+
+
+```
+
+
+## Reading Our Data
+
+We'll read our data into Spark DataFrames. We'll specify the null value, and also ask Spark to infer the schema. 
+
+```{r spark-read-DF}
+
+
+airlineDF <- spark_read_csv(sc = sc, 
+                            name = "airline",
+                            path = "/FlightData/AirlineSubsetCsv", 
+                            header = TRUE, 
+                            infer_schema = TRUE, 
+                            null_value = "null")
+
+weatherDF <- spark_read_csv(sc = sc, 
+                            name = "weather",
+                            path = "/FlightData/WeatherSubsetCsv",
+                            header = TRUE,
+                            infer_schema = TRUE,
+                            null_value = "null")
+
+```
+
+
+
+## Renaming
+
+Now that we have our data in Spark DataFrames, we can use `dplyr` to manipulate it.
+
+```{r rename-cols}
+
+
+# Rename Airline Columns --------------------------------------------------
+
+
+library(stringr)
+
+airNames <- colnames(airlineDF)
+newNames <- gsub('\\_(\\w?)', '\\U\\1', tolower(airNames), perl=T)
+
+airlineDF <- airlineDF %>% setNames(newNames)
+
+
+```
+
+
+
+## Joins
+
+Let's select the rows from the Spark DataFrame we want to keep. We are going to aggregate over the weather dataset to get the weather metrics by day, month, year, and airport code.
+
+
+```{r select}
+
+
+# Select desired columns from the flight data. 
+
+varsToKeep <- c("arrDel15", "year", "month", "dayOfMonth", 
+                "dayOfWeek", "uniqueCarrier", "originAirportId", 
+                "destAirportId", "crsDepTime", "crsArrTime",
+                "tailNum", "distance", "arrDelayNew")
+
+airlineDF <- select_(airlineDF, .dots = varsToKeep)
+
+airlineDF <- airlineDF %>% mutate(crsDepTime = floor(crsDepTime / 100))
+
+weatherSummary <- weatherDF %>% 
+  group_by(AdjustedYear, AdjustedMonth, AdjustedDay, AdjustedHour, AirportID) %>% 
+  summarise(Visibility = mean(Visibility),
+            DryBulbCelsius = mean(DryBulbCelsius),
+            DewPointCelsius = mean(DewPointCelsius),
+            RelativeHumidity = mean(RelativeHumidity),
+            WindSpeed = mean(WindSpeed),
+            Altimeter = mean(Altimeter))
+
+## Spark sees it:
+
+translate_sql(summarise(group_by(AdjustedYear, AdjustedMonth, AdjustedDay, AdjustedHour, AirportID), Visibility = mean(Visibility)))
+
+
+```
+
+
+## First Join
+
+We'll need to join twice, first on the origin airports, and then on the destinations.
+
+
+```{r origin-join}
+
+
+#######################################################
+# Join airline data with weather at Origin Airport
+#######################################################
+
+originDF <- left_join(x = airlineDF,
+                      y = weatherSummary,
+                      by = c("originAirportId" = "AirportID",
+                             "year" = "AdjustedYear",
+                             "month" = "AdjustedMonth",
+                             "dayOfMonth"= "AdjustedDay",
+                             "crsDepTime" = "AdjustedHour"))
+
+
+
+# Remove redundant columns ------------------------------------------------
+
+vars <- colnames(originDF)
+varsToDrop <- c('AdjustedYear', 'AdjustedMonth', 'AdjustedDay', 'AdjustedHour', 'AirportID')
+varsToKeep <- vars[!(vars %in% varsToDrop)]
+
+originDF <- select_(originDF, .dots = varsToKeep)
+
+originDF <- originDF %>% rename(VisibilityOrigin = Visibility,
+                                DryBulbCelsiusOrigin = DryBulbCelsius,
+                                DewPointCelsiusOrigin = DewPointCelsius,
+                                RelativeHumidityOrigin = RelativeHumidity,
+                                WindSpeedOrigin = WindSpeed,
+                                AltimeterOrigin = Altimeter)
+
+```
+
+Sweet, now let's do the same on the destination airports. YOUR TURN!
+
+
+```{r dest-join}
+
+
+#######################################################
+# Join airline data with weather at Destination Airport
+#######################################################
+
+# Complete this!
+# destDF <- left_join(x = originDF,
+#                     y = weatherSummary,
+#                     ...)
+
+
+
+# Rename Columns and Drop Reduncies ---------------------------------------
+
+vars <- colnames(destDF)
+varsToDrop <- c('AdjustedYear', 'AdjustedMonth', 'AdjustedDay', 'AdjustedHour', 'AirportID')
+varsToKeep <- vars[!(vars %in% varsToDrop)]
+airWeatherDF <- select_(destDF, .dots = varsToKeep)
+
+airWeatherDF <- rename(airWeatherDF,
+                       VisibilityDest = Visibility,
+                       DryBulbCelsiusDest = DryBulbCelsius,
+                       DewPointCelsiusDest = DewPointCelsius,
+                       RelativeHumidityDest = RelativeHumidity,
+                       WindSpeedDest = WindSpeed,
+                       AltimeterDest = Altimeter)
+
+```
+
+## Cache and Save Your Data Set
+
+
+```{r cache}
+
+airWeatherDF <- airWeatherDF %>% sdf_register("flightsweather")
+
+tbl_cache(sc, "flightsweather")
+
+
+```
+

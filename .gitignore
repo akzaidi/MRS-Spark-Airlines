@@ -1,0 +1,7 @@
+# ignore nb.html
+
+*.nb.html
+
+# ignore rproj.user
+
+*.Rproj.user
