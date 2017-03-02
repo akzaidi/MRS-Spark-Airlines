@@ -11,3 +11,5 @@ hdfs dfs -mkdir /FlightData/
 
 hdfs dfs -copyFromLocal AirlineSubsetCsv/ /FlightData/
 hdfs dfs -copyFromLocal WeatherSubsetCsv /FlightData/
+
+Rscript ./install-pkgs.R

@@ -83,7 +83,7 @@ R has an DSL for interacting with `html`. We can create javascript based visuali
 
 # WebGL Routes Visualization ----------------------------------------------
 
-system("wget https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat")
+# system("wget https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat")
 
 airports <- read.table("airports.dat", header = F, sep = ",")
 

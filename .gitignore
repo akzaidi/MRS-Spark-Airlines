@@ -5,3 +5,4 @@
 # ignore rproj.user
 
 *.Rproj.user
+.Rproj.user
