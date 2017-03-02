@@ -3,7 +3,7 @@ mran_date <- Sys.Date() - 1
 r[["CRAN"]] <- paste0("https://mran.revolutionanalytics.com/snapshot/", mran_date)
 options(repos = r)
 
-pkgs <- c("sparklyr", "tidyverse", "rsparkling")
+pkgs <- c("sparklyr", "tidyverse")
 
 install.packages(pkgs)
 
